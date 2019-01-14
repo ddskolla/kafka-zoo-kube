@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: zookeeper
+  name: zoo
+spec:
+  ports:
+  - name: client
+    port: 2181
+    protocol: TCP
+    targetPort: 2181
+  - name: follower
+    port: 2888
+    protocol: TCP
+    targetPort: 2888
+  - name: leader
+    port: 3888
+    protocol: TCP
+    targetPort: 3888
+  selector:
+    app: kafka-zoo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-svc
+spec:
+  ports:
+  - port: 9092
+    protocol: TCP
+    targetPort: 9092
+  selector:
+    app: kafka-zoo
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-zoo
+  name: kafka-zoo
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: kafka-zoo
+    spec:
+      containers:
+      - name: zoo
+        image: confluentinc/cp-zookeeper@sha256:406eeb04c19f5f0dd1c877e11fdc813b18ad11957031f78c012dadf7b121d5e7
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ZOOKEEPER_ID
+          value: "1"
+        - name: ZOOKEEPER_SERVER_1
+          value: zoo
+        - name: ZOOKEEPER_INIT_LIMIT
+          value: "5"
+        - name: ZOOKEEPER_SYNC_LIMIT
+          value: "2"
+        - name: ZOOKEEPER_SNAP_COUNT
+          value: "100000"
+        - name: ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT
+          value: "10"
+        - name: ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL
+          value: "24"
+        - name: ZOOKEEPER_CLIENT_PORT
+          value: "2181"
+        resources:
+          limits:
+            cpu: 1
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        livenessProbe:
+          exec:
+            command:    ['/bin/bash', '-c', 'echo "ruok" | nc -w 2 -q 2 localhost 2181 | grep imok']
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+      - name: kafka-svc
+        image: confluentinc/cp-kafka@sha256:c87b1c07fb53b1a82d24b436e53485917876a963dc67311800109fa12fe9a63d
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9092
+        env:
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: zoo:2181
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: INTERNAL_PLAINTEXT:PLAINTEXT
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: INTERNAL_PLAINTEXT://kafka-svc:9092
+        - name: KAFKA_LISTENERS
+          value: INTERNAL_PLAINTEXT://0.0.0.0:9092
+        - name: KAFKA_INTER_BROKER_LISTENER_NAME
+          value: INTERNAL_PLAINTEXT
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        resources:
+          limits:
+            cpu: 1
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        livenessProbe:
+          exec:
+            command:
+              - usr/bin/kafka-topics
+              - --zookeeper
+              - "zoo:2181"
+              - --list
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+
